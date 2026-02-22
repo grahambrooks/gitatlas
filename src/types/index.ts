@@ -7,4 +7,7 @@ export type {
   FileChange,
   BranchInfo,
   StashEntry,
+  CommitFileChange,
+  RemoteInfo,
+  GitProfile,
 } from "./detail";

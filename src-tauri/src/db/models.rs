@@ -12,6 +12,7 @@ pub struct RepoInfo {
     pub stash_count: u32,
     pub health: RepoHealth,
     pub last_checked: String,
+    pub remote_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -81,6 +82,24 @@ pub struct BranchInfo {
 pub struct StashEntry {
     pub index: usize,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitFileChange {
+    pub path: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteInfo {
+    pub name: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitProfile {
+    pub name: String,
+    pub email: String,
 }
 
 impl RepoHealth {

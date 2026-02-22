@@ -8,8 +8,8 @@ impl Database {
     pub fn upsert_repo(&self, repo: &RepoInfo) -> Result<(), AppError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO repos (path, name, branch, ahead, behind, dirty_files, stash_count, health, last_checked)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "INSERT INTO repos (path, name, branch, ahead, behind, dirty_files, stash_count, health, last_checked, remote_url)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(path) DO UPDATE SET
                 name = excluded.name,
                 branch = excluded.branch,
@@ -18,7 +18,8 @@ impl Database {
                 dirty_files = excluded.dirty_files,
                 stash_count = excluded.stash_count,
                 health = excluded.health,
-                last_checked = excluded.last_checked",
+                last_checked = excluded.last_checked,
+                remote_url = excluded.remote_url",
             params![
                 repo.path,
                 repo.name,
@@ -29,6 +30,7 @@ impl Database {
                 repo.stash_count,
                 repo.health.as_str(),
                 repo.last_checked,
+                repo.remote_url,
             ],
         )?;
         Ok(())
@@ -37,7 +39,7 @@ impl Database {
     pub fn get_all_repos(&self) -> Result<Vec<RepoInfo>, AppError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, path, name, branch, ahead, behind, dirty_files, stash_count, health, last_checked FROM repos ORDER BY name",
+            "SELECT id, path, name, branch, ahead, behind, dirty_files, stash_count, health, last_checked, remote_url FROM repos ORDER BY name",
         )?;
         let repos = stmt
             .query_map([], |row| {
@@ -52,6 +54,7 @@ impl Database {
                     stash_count: row.get(7)?,
                     health: RepoHealth::from_str(&row.get::<_, String>(8)?),
                     last_checked: row.get(9)?,
+                    remote_url: row.get(10)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;

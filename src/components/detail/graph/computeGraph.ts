@@ -5,6 +5,8 @@ export interface GraphNode {
   lane: number;
   // Lines connecting to parent commits: [fromLane, toLane, toRow]
   edges: GraphEdge[];
+  // Lanes that pass through this row (active but no commit here)
+  passThroughLanes: number[];
 }
 
 export interface GraphEdge {
@@ -128,7 +130,16 @@ export function computeGraph(commits: CommitInfo[]): {
       }
     }
 
-    nodes.push({ commit, lane, edges });
+    // 4. Compute pass-through lanes: lanes that are active at this row
+    //    but don't belong to this commit (they're waiting for a future commit)
+    const passThroughLanes: number[] = [];
+    for (let i = 0; i < activeLanes.length; i++) {
+      if (activeLanes[i] !== null && i !== lane) {
+        passThroughLanes.push(i);
+      }
+    }
+
+    nodes.push({ commit, lane, edges, passThroughLanes });
   }
 
   // Trim trailing null lanes for laneCount

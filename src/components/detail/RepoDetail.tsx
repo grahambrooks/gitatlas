@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import type { RepoInfo } from "../../types";
+import type { RepoInfo, CommitFileChange } from "../../types";
 import { useRepoDetail } from "../../hooks/useRepoDetail";
 import CommitGraph from "./CommitGraph";
 import FileChanges from "./FileChanges";
@@ -20,6 +20,13 @@ export default function RepoDetail({ repo, onClose }: RepoDetailProps) {
   const [activeTab, setActiveTab] = useState<Tab>("changes");
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedFileIndex, setSelectedFileIndex] = useState(0);
+  const [selectedCommitIndex, setSelectedCommitIndex] = useState(0);
+  const [showProfileEdit, setShowProfileEdit] = useState(false);
+  const [profileName, setProfileName] = useState("");
+  const [profileEmail, setProfileEmail] = useState("");
+  const [showSquash, setShowSquash] = useState(false);
+  const [squashMessage, setSquashMessage] = useState("");
 
   const detail = useRepoDetail(repo.path);
 
@@ -31,6 +38,7 @@ export default function RepoDetail({ repo, onClose }: RepoDetailProps) {
       detail.loadCommits();
     } else if (activeTab === "branches") {
       detail.loadBranches();
+      detail.loadRemotes();
     } else if (activeTab === "stashes") {
       detail.loadStashes();
     } else if (activeTab === "readme") {
@@ -40,14 +48,37 @@ export default function RepoDetail({ repo, onClose }: RepoDetailProps) {
     detail.setDiff("");
     setSelectedCommit(null);
     setSelectedFile(null);
+    setSelectedFileIndex(0);
+    setSelectedCommitIndex(0);
+    setShowSquash(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, repo.path]);
+
+  // Load profile on mount
+  useEffect(() => {
+    detail.loadProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repo.path]);
+
+  // Sync profile edit form when profile loads
+  useEffect(() => {
+    if (detail.profile) {
+      setProfileName(detail.profile.name);
+      setProfileEmail(detail.profile.email);
+    }
+  }, [detail.profile]);
 
   const handleSelectCommit = useCallback(
     async (oid: string) => {
       setSelectedCommit(oid);
       setSelectedFile(null);
-      await detail.loadCommitDiff(oid);
+      setShowSquash(false);
+      const idx = detail.commits.findIndex((c) => c.oid === oid);
+      if (idx >= 0) setSelectedCommitIndex(idx);
+      await Promise.all([
+        detail.loadCommitDiff(oid),
+        detail.loadCommitFiles(oid),
+      ]);
     },
     [detail],
   );
@@ -56,10 +87,124 @@ export default function RepoDetail({ repo, onClose }: RepoDetailProps) {
     async (filePath: string, staged: boolean) => {
       setSelectedFile(filePath);
       setSelectedCommit(null);
+      const idx = detail.changes.findIndex((c) => c.path === filePath);
+      if (idx >= 0) setSelectedFileIndex(idx);
       await detail.loadFileDiff(filePath, staged);
     },
     [detail],
   );
+
+  // Compute squash distance: how many linear commits from HEAD to selected commit
+  const squashCount = (() => {
+    if (!selectedCommit || activeTab !== "history") return 0;
+    const idx = detail.commits.findIndex((c) => c.oid === selectedCommit);
+    if (idx <= 0) return 0;
+    // Check linearity (each commit has exactly 1 parent that's the next in the list)
+    for (let i = 0; i < idx; i++) {
+      const commit = detail.commits[i];
+      if (commit.parents.length !== 1) return 0;
+      const nextOid = detail.commits[i + 1]?.short_oid;
+      if (!nextOid || !commit.parents.includes(nextOid)) return 0;
+    }
+    return idx + 1;
+  })();
+
+  // ── Keyboard shortcuts ──
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      // Tab switching: 1–5
+      const tabKeys: Tab[] = ["changes", "history", "branches", "stashes", "readme"];
+      if (e.key >= "1" && e.key <= "5") {
+        e.preventDefault();
+        setActiveTab(tabKeys[parseInt(e.key) - 1]);
+        return;
+      }
+
+      // Escape: close detail view
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (detail.fileHistoryPath) {
+          detail.closeFileHistory();
+        } else {
+          onClose();
+        }
+        return;
+      }
+
+      // Cmd+S: stage selected file
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        if (activeTab === "changes" && selectedFile) {
+          const file = detail.changes.find((c) => c.path === selectedFile);
+          if (file && !file.staged) {
+            detail.stageFiles([file.path]);
+          } else if (file && file.staged) {
+            detail.unstageFiles([file.path]);
+          }
+        }
+        return;
+      }
+
+      // j/k: navigate
+      if (e.key === "j" || e.key === "k") {
+        e.preventDefault();
+        const delta = e.key === "j" ? 1 : -1;
+
+        if (activeTab === "history") {
+          const newIdx = Math.max(0, Math.min(detail.commits.length - 1, selectedCommitIndex + delta));
+          if (detail.commits[newIdx]) {
+            handleSelectCommit(detail.commits[newIdx].oid);
+          }
+        } else if (activeTab === "changes") {
+          const newIdx = Math.max(0, Math.min(detail.changes.length - 1, selectedFileIndex + delta));
+          if (detail.changes[newIdx]) {
+            handleSelectFile(detail.changes[newIdx].path, detail.changes[newIdx].staged);
+          }
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [
+    activeTab,
+    selectedFile,
+    selectedCommitIndex,
+    selectedFileIndex,
+    detail,
+    onClose,
+    handleSelectCommit,
+    handleSelectFile,
+  ]);
+
+  const handleMergeDrop = useCallback(
+    (sourceBranch: string, targetOid: string) => {
+      // Only merge onto the HEAD commit
+      const headCommit = detail.commits.find((c) =>
+        c.refs.some((r) => r.kind === "head"),
+      );
+      if (headCommit && headCommit.oid === targetOid) {
+        detail.mergeBranch(sourceBranch);
+      }
+    },
+    [detail],
+  );
+
+  const handleSaveProfile = async () => {
+    await detail.updateProfile(profileName, profileEmail);
+    setShowProfileEdit(false);
+  };
+
+  const handleSquash = async () => {
+    if (squashCount < 2 || !squashMessage.trim()) return;
+    await detail.squashCommits(squashCount, squashMessage.trim());
+    setShowSquash(false);
+    setSquashMessage("");
+    setSelectedCommit(null);
+  };
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "changes", label: "Changes" },
@@ -78,7 +223,7 @@ export default function RepoDetail({ repo, onClose }: RepoDetailProps) {
         <button
           onClick={onClose}
           className="rounded p-1 text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition"
-          title="Back to dashboard"
+          title="Back to dashboard (Esc)"
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path d="M13 4L7 10L13 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -93,6 +238,44 @@ export default function RepoDetail({ repo, onClose }: RepoDetailProps) {
         <span className="rounded bg-slate-700/60 px-2 py-0.5 text-xs font-mono text-blue-300 shrink-0">
           {repo.branch}
         </span>
+
+        {/* Git profile */}
+        {detail.profile && (
+          <div className="relative">
+            <button
+              onClick={() => setShowProfileEdit(!showProfileEdit)}
+              className="text-xs text-slate-400 hover:text-slate-200 transition truncate max-w-32"
+              title={`${detail.profile.name} <${detail.profile.email}>`}
+            >
+              {detail.profile.name || "Set profile"}
+            </button>
+            {showProfileEdit && (
+              <div className="absolute top-full left-0 mt-1 z-50 rounded border border-slate-700 bg-slate-800 p-3 shadow-lg">
+                <div className="flex flex-col gap-2 w-56">
+                  <input
+                    value={profileName}
+                    onChange={(e) => setProfileName(e.target.value)}
+                    placeholder="user.name"
+                    className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-mono text-slate-200 outline-none focus:border-slate-500"
+                  />
+                  <input
+                    value={profileEmail}
+                    onChange={(e) => setProfileEmail(e.target.value)}
+                    placeholder="user.email"
+                    onKeyDown={(e) => e.key === "Enter" && handleSaveProfile()}
+                    className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs font-mono text-slate-200 outline-none focus:border-slate-500"
+                  />
+                  <button
+                    onClick={handleSaveProfile}
+                    className="rounded bg-indigo-600 px-2 py-1 text-xs text-white hover:bg-indigo-500"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Remote operations */}
         <div className="flex items-center gap-1.5 ml-4">
@@ -117,6 +300,12 @@ export default function RepoDetail({ repo, onClose }: RepoDetailProps) {
             activeLabel="Pushing…"
             onClick={detail.push}
           />
+          <button
+            onClick={detail.openPullRequest}
+            className="rounded px-2.5 py-1 text-xs font-medium bg-green-700/80 text-green-100 hover:bg-green-600 transition"
+          >
+            Create PR
+          </button>
         </div>
 
         {/* Loading action indicator */}
@@ -130,7 +319,7 @@ export default function RepoDetail({ repo, onClose }: RepoDetailProps) {
 
         {/* Tabs */}
         <nav className="flex items-center gap-1">
-          {tabs.map((tab) => (
+          {tabs.map((tab, i) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
@@ -139,6 +328,7 @@ export default function RepoDetail({ repo, onClose }: RepoDetailProps) {
                   ? "bg-slate-700 text-white"
                   : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
               }`}
+              title={`${tab.label} (${i + 1})`}
             >
               {tab.label}
             </button>
@@ -183,6 +373,7 @@ export default function RepoDetail({ repo, onClose }: RepoDetailProps) {
                   onUnstageFiles={detail.unstageFiles}
                   onStageAll={detail.stageAll}
                   onUnstageAll={detail.unstageAll}
+                  onFileHistory={detail.loadFileHistory}
                 />
               </div>
               <CommitForm stagedCount={stagedCount} onCommit={detail.createCommit} />
@@ -202,11 +393,72 @@ export default function RepoDetail({ repo, onClose }: RepoDetailProps) {
                 commits={detail.commits}
                 selectedOid={selectedCommit}
                 onSelect={handleSelectCommit}
+                onMergeDrop={handleMergeDrop}
               />
             </div>
-            {/* Right: diff */}
-            <div className="flex-1 min-h-0 overflow-auto">
-              <DiffViewer diff={detail.diff} />
+            {/* Right: commit details + diff */}
+            <div className="flex-1 min-h-0 overflow-auto flex flex-col">
+              {/* Commit files panel */}
+              {selectedCommit && detail.commitFiles.length > 0 && (
+                <div className="border-b border-slate-700 shrink-0">
+                  <div className="flex items-center justify-between px-3 py-1.5">
+                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                      Changed Files
+                      <span className="ml-1.5 text-slate-500">{detail.commitFiles.length}</span>
+                    </span>
+                    {squashCount >= 2 && (
+                      <button
+                        onClick={() => {
+                          setShowSquash(!showSquash);
+                          setSquashMessage(
+                            detail.commits
+                              .slice(0, squashCount)
+                              .map((c) => c.message)
+                              .join("\n\n"),
+                          );
+                        }}
+                        className="text-xs text-amber-400 hover:text-amber-300 transition"
+                      >
+                        Squash {squashCount} commits
+                      </button>
+                    )}
+                  </div>
+                  {showSquash && (
+                    <div className="px-3 pb-2 flex flex-col gap-1.5">
+                      <textarea
+                        value={squashMessage}
+                        onChange={(e) => setSquashMessage(e.target.value)}
+                        rows={3}
+                        className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs font-mono text-slate-200 outline-none focus:border-slate-500 resize-none"
+                        placeholder="Squash commit message..."
+                      />
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleSquash}
+                          disabled={!squashMessage.trim()}
+                          className="rounded bg-amber-600 px-2 py-1 text-xs text-white hover:bg-amber-500 disabled:opacity-40"
+                        >
+                          Squash
+                        </button>
+                        <button
+                          onClick={() => setShowSquash(false)}
+                          className="text-xs text-slate-400 hover:text-slate-200"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="max-h-40 overflow-auto">
+                    {detail.commitFiles.map((file) => (
+                      <CommitFileRow key={file.path} file={file} />
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="flex-1 min-h-0 overflow-auto">
+                <DiffViewer diff={detail.diff} />
+              </div>
             </div>
           </>
         )}
@@ -218,6 +470,11 @@ export default function RepoDetail({ repo, onClose }: RepoDetailProps) {
               onCheckout={detail.checkoutBranch}
               onCreate={detail.createBranch}
               onDelete={detail.deleteBranch}
+              onMerge={detail.mergeBranch}
+              remotes={detail.remotes}
+              onAddRemote={detail.addRemote}
+              onRemoveRemote={detail.removeRemote}
+              onRenameRemote={detail.renameRemote}
             />
           </div>
         )}
@@ -237,6 +494,100 @@ export default function RepoDetail({ repo, onClose }: RepoDetailProps) {
           <div className="flex-1 overflow-auto">
             <ReadmeViewer content={detail.readme} />
           </div>
+        )}
+      </div>
+
+      {/* File history slide-over */}
+      {detail.fileHistoryPath && (
+        <FileHistoryPanel
+          filePath={detail.fileHistoryPath}
+          history={detail.fileHistory}
+          onSelectCommit={async (oid) => {
+            setActiveTab("history");
+            detail.closeFileHistory();
+            // Small delay to let tab switch load commits
+            setTimeout(() => handleSelectCommit(oid), 100);
+          }}
+          onClose={detail.closeFileHistory}
+        />
+      )}
+    </div>
+  );
+}
+
+function CommitFileRow({ file }: { file: CommitFileChange }) {
+  const statusColors: Record<string, string> = {
+    added: "text-green-400",
+    deleted: "text-red-400",
+    modified: "text-yellow-400",
+    renamed: "text-blue-400",
+    copied: "text-cyan-400",
+  };
+  const statusLetters: Record<string, string> = {
+    added: "A",
+    deleted: "D",
+    modified: "M",
+    renamed: "R",
+    copied: "C",
+  };
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-0.5 text-xs hover:bg-slate-700/30">
+      <span className={`font-mono font-bold w-3 ${statusColors[file.status] || "text-slate-400"}`}>
+        {statusLetters[file.status] || "?"}
+      </span>
+      <span className="font-mono text-slate-300 truncate">{file.path}</span>
+    </div>
+  );
+}
+
+function FileHistoryPanel({
+  filePath,
+  history,
+  onSelectCommit,
+  onClose,
+}: {
+  filePath: string;
+  history: import("../../types").CommitInfo[];
+  onSelectCommit: (oid: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-y-0 right-0 z-60 w-96 bg-slate-800 border-l border-slate-700 shadow-2xl flex flex-col">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-white">File History</h3>
+          <p className="text-xs font-mono text-slate-400 truncate">{filePath}</p>
+        </div>
+        <button
+          onClick={onClose}
+          className="rounded p-1 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+        </button>
+      </div>
+      <div className="flex-1 overflow-auto">
+        {history.length === 0 ? (
+          <p className="p-4 text-xs text-slate-500">Loading...</p>
+        ) : (
+          history.map((commit) => (
+            <button
+              key={commit.oid}
+              onClick={() => onSelectCommit(commit.oid)}
+              className="w-full text-left px-4 py-2 border-b border-slate-700/50 hover:bg-slate-700/30 transition"
+            >
+              <p className="text-sm text-slate-200 truncate">{commit.message.split("\n")[0]}</p>
+              <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+                <span className="font-mono text-slate-400">{commit.short_oid}</span>
+                <span className="truncate">{commit.author}</span>
+                <span className="ml-auto shrink-0">
+                  {new Date(commit.date).toLocaleDateString()}
+                </span>
+              </div>
+            </button>
+          ))
         )}
       </div>
     </div>

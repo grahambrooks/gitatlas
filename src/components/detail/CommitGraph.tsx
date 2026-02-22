@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
 import type { CommitInfo, RefLabel } from "../../types";
 import { computeGraph } from "./graph/computeGraph";
 import GraphSvg, { ROW_HEIGHT, LANE_WIDTH, LEFT_PAD } from "./graph/GraphSvg";
@@ -7,6 +7,7 @@ interface CommitGraphProps {
   commits: CommitInfo[];
   selectedOid: string | null;
   onSelect: (oid: string) => void;
+  onMergeDrop?: (sourceBranch: string, targetOid: string) => void;
 }
 
 const REF_COLORS: Record<string, { bg: string; text: string }> = {
@@ -16,9 +17,34 @@ const REF_COLORS: Record<string, { bg: string; text: string }> = {
   tag: { bg: "bg-amber-600", text: "text-white" },
 };
 
-export default function CommitGraph({ commits, selectedOid, onSelect }: CommitGraphProps) {
+function avatarColor(email: string): string {
+  let hash = 0;
+  for (let i = 0; i < email.length; i++) {
+    hash = email.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 55%, 45%)`;
+}
+
+export default function CommitGraph({ commits, selectedOid, onSelect, onMergeDrop }: CommitGraphProps) {
   const { laneCount } = useMemo(() => computeGraph(commits), [commits]);
   const graphWidth = LEFT_PAD + laneCount * LANE_WIDTH + 12;
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent, targetOid: string) => {
+      e.preventDefault();
+      const sourceBranch = e.dataTransfer.getData("text/plain");
+      if (sourceBranch && onMergeDrop) {
+        onMergeDrop(sourceBranch, targetOid);
+      }
+    },
+    [onMergeDrop],
+  );
 
   if (commits.length === 0) {
     return (
@@ -37,11 +63,15 @@ export default function CommitGraph({ commits, selectedOid, onSelect }: CommitGr
           const isSelected = selectedOid === commit.oid;
           const date = new Date(commit.date);
           const relDate = formatRelative(date);
+          const initial = (commit.author[0] || "?").toUpperCase();
+          const color = avatarColor(commit.author_email);
 
           return (
             <button
               key={commit.oid}
               onClick={() => onSelect(commit.oid)}
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, commit.oid)}
               className={`flex items-center w-full text-left transition ${
                 isSelected
                   ? "bg-indigo-600/20"
@@ -49,6 +79,15 @@ export default function CommitGraph({ commits, selectedOid, onSelect }: CommitGr
               }`}
               style={{ height: ROW_HEIGHT }}
             >
+              {/* Avatar */}
+              <div
+                className="shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white ml-2"
+                style={{ backgroundColor: color }}
+                title={commit.author}
+              >
+                {initial}
+              </div>
+
               <div className="flex flex-col gap-0.5 px-3 py-1 min-w-0 flex-1">
                 <div className="flex items-center gap-2 min-w-0">
                   <p className="text-sm text-slate-200 leading-snug truncate">
@@ -78,14 +117,22 @@ export default function CommitGraph({ commits, selectedOid, onSelect }: CommitGr
 
 function RefBadge({ refLabel }: { refLabel: RefLabel }) {
   const colors = REF_COLORS[refLabel.kind] ?? REF_COLORS.local;
-  // Shorten remote names: "origin/main" → "origin/main" (keep as-is, they're short enough)
   const display = refLabel.kind === "head"
-    ? `HEAD → ${refLabel.name}`
+    ? `HEAD \u2192 ${refLabel.name}`
     : refLabel.name;
+
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData("text/plain", refLabel.name);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const isDraggable = refLabel.kind === "local" || refLabel.kind === "remote";
 
   return (
     <span
-      className={`inline-flex items-center rounded px-1.5 py-0 text-[10px] font-semibold leading-4 ${colors.bg} ${colors.text}`}
+      draggable={isDraggable}
+      onDragStart={isDraggable ? handleDragStart : undefined}
+      className={`inline-flex items-center rounded px-1.5 py-0 text-[10px] font-semibold leading-4 ${colors.bg} ${colors.text} ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""}`}
     >
       {display}
     </span>

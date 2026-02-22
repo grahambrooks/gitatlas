@@ -1,6 +1,22 @@
 import { useState } from "react";
 import type { RepoInfo } from "../types";
+import GitHubLink from "./GitHubLink";
 import StatusBadge from "./StatusBadge";
+
+function gitUrlToWeb(url: string | null): string | null {
+  if (!url) return null;
+  // git@github.com:user/repo.git -> https://github.com/user/repo
+  const sshMatch = url.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
+  if (sshMatch) return `https://${sshMatch[1]}/${sshMatch[2]}`;
+  // https://github.com/user/repo.git -> https://github.com/user/repo
+  try {
+    const u = new URL(url);
+    const path = u.pathname.replace(/\.git$/, "");
+    return `${u.protocol}//${u.host}${path}`;
+  } catch {
+    return null;
+  }
+}
 
 interface RepoCardProps {
   repo: RepoInfo;
@@ -34,7 +50,12 @@ export default function RepoCard({ repo, onFetch, onPullRebase, onPush, onOpen }
       >
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="truncate font-medium text-slate-100">{repo.name}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="truncate font-medium text-slate-100">{repo.name}</p>
+              {gitUrlToWeb(repo.remote_url) && (
+                <GitHubLink url={gitUrlToWeb(repo.remote_url)!} className="h-3.5 w-3.5" />
+              )}
+            </div>
             <p className="truncate text-xs text-slate-500 font-mono" title={repo.path}>
               {repo.path}
             </p>

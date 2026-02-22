@@ -2,7 +2,7 @@ use git2::{DiffOptions, Repository, Sort, StatusOptions, StatusShow};
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::db::models::{BranchInfo, CommitInfo, FileChange, FileStatus, RefKind, RefLabel, StashEntry};
+use crate::db::models::{BranchInfo, CommitFileChange, CommitInfo, FileChange, FileStatus, GitProfile, RefKind, RefLabel, RemoteInfo, StashEntry};
 use crate::error::AppError;
 
 // ── Commit log ──────────────────────────────────────────
@@ -475,6 +475,312 @@ pub fn stash_drop(path: &Path, index: usize) -> Result<(), AppError> {
     let mut repo = Repository::open(path)?;
     repo.stash_drop(index)?;
     Ok(())
+}
+
+// ── Commit file changes ─────────────────────────────────
+
+pub fn get_commit_files(path: &Path, oid_str: &str) -> Result<Vec<CommitFileChange>, AppError> {
+    let repo = Repository::open(path)?;
+    let oid = git2::Oid::from_str(oid_str)?;
+    let commit = repo.find_commit(oid)?;
+    let tree = commit.tree()?;
+
+    let parent_tree = commit.parent(0).ok().and_then(|p| p.tree().ok());
+
+    let diff = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
+
+    let mut files = Vec::new();
+    for delta in diff.deltas() {
+        let status = match delta.status() {
+            git2::Delta::Added => "added",
+            git2::Delta::Deleted => "deleted",
+            git2::Delta::Modified => "modified",
+            git2::Delta::Renamed => "renamed",
+            git2::Delta::Copied => "copied",
+            _ => "modified",
+        };
+        let file_path = delta
+            .new_file()
+            .path()
+            .or_else(|| delta.old_file().path())
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        files.push(CommitFileChange {
+            path: file_path,
+            status: status.to_string(),
+        });
+    }
+
+    Ok(files)
+}
+
+// ── Merge ───────────────────────────────────────────────
+
+pub fn merge_branch(path: &Path, branch_name: &str) -> Result<String, AppError> {
+    let repo = Repository::open(path)?;
+    let branch_ref = repo.find_branch(branch_name, git2::BranchType::Local)
+        .or_else(|_| repo.find_branch(branch_name, git2::BranchType::Remote))?;
+    let annotated = repo.reference_to_annotated_commit(branch_ref.get())?;
+
+    let (analysis, _) = repo.merge_analysis(&[&annotated])?;
+
+    if analysis.is_up_to_date() {
+        return Ok("Already up to date".to_string());
+    }
+
+    if analysis.is_fast_forward() {
+        let target_oid = annotated.id();
+        let target_obj = repo.find_object(target_oid, None)?;
+        repo.checkout_tree(&target_obj, None)?;
+
+        let mut head_ref = repo.head()?;
+        head_ref.set_target(target_oid, &format!("Fast-forward merge {}", branch_name))?;
+
+        return Ok("Fast-forward merge".to_string());
+    }
+
+    // Normal merge
+    repo.merge(&[&annotated], None, None)?;
+
+    // Auto-commit the merge
+    let sig = repo.signature()?;
+    let mut index = repo.index()?;
+    if index.has_conflicts() {
+        repo.cleanup_state()?;
+        return Err(AppError::General("Merge has conflicts — resolve them manually".to_string()));
+    }
+    let tree_oid = index.write_tree()?;
+    let tree = repo.find_tree(tree_oid)?;
+    let head_commit = repo.head()?.peel_to_commit()?;
+    let merge_commit = repo.find_commit(annotated.id())?;
+    let msg = format!("Merge branch '{}'", branch_name);
+    repo.commit(
+        Some("HEAD"),
+        &sig,
+        &sig,
+        &msg,
+        &tree,
+        &[&head_commit, &merge_commit],
+    )?;
+    repo.cleanup_state()?;
+
+    Ok("Merge commit created".to_string())
+}
+
+// ── File history ────────────────────────────────────────
+
+pub fn get_file_history(path: &Path, file_path: &str, count: usize) -> Result<Vec<CommitInfo>, AppError> {
+    let repo = Repository::open(path)?;
+    let ref_map = build_ref_map(&repo);
+
+    let mut revwalk = repo.revwalk()?;
+    revwalk.set_sorting(Sort::TIME)?;
+    if let Ok(head) = repo.head() {
+        if let Some(oid) = head.target() {
+            let _ = revwalk.push(oid);
+        }
+    }
+
+    let mut commits = Vec::new();
+    let mut prev_blob_id: Option<git2::Oid> = None;
+
+    for oid_result in revwalk {
+        let oid = oid_result?;
+        let commit = repo.find_commit(oid)?;
+        let tree = commit.tree()?;
+
+        let blob_id = tree
+            .get_path(Path::new(file_path))
+            .ok()
+            .map(|entry| entry.id());
+
+        // For the first commit, if the file exists, record it
+        // For subsequent commits, only include if the blob changed
+        let dominated = if prev_blob_id.is_none() {
+            // First commit in the walk — include if file exists
+            blob_id.is_some()
+        } else {
+            blob_id != prev_blob_id
+        };
+
+        if dominated {
+            let oid_str = oid.to_string();
+            let short = oid_str[..7].to_string();
+            let refs = ref_map.get(&oid_str).cloned().unwrap_or_default();
+
+            commits.push(CommitInfo {
+                oid: oid_str,
+                short_oid: short,
+                message: commit.message().unwrap_or("").trim().to_string(),
+                author: commit.author().name().unwrap_or("Unknown").to_string(),
+                author_email: commit.author().email().unwrap_or("").to_string(),
+                date: chrono::DateTime::from_timestamp(commit.time().seconds(), 0)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
+                parents: commit.parent_ids().map(|id| id.to_string()[..7].to_string()).collect(),
+                refs,
+            });
+
+            if commits.len() >= count {
+                break;
+            }
+        }
+
+        prev_blob_id = blob_id;
+    }
+
+    Ok(commits)
+}
+
+// ── Remote management ───────────────────────────────────
+
+pub fn get_remotes(path: &Path) -> Result<Vec<RemoteInfo>, AppError> {
+    let repo = Repository::open(path)?;
+    let remote_names = repo.remotes()?;
+    let mut remotes = Vec::new();
+
+    for name in remote_names.iter().flatten() {
+        let remote = repo.find_remote(name)?;
+        let url = remote.url().unwrap_or("").to_string();
+        remotes.push(RemoteInfo {
+            name: name.to_string(),
+            url,
+        });
+    }
+
+    Ok(remotes)
+}
+
+pub fn add_remote(path: &Path, name: &str, url: &str) -> Result<(), AppError> {
+    let repo = Repository::open(path)?;
+    repo.remote(name, url)?;
+    Ok(())
+}
+
+pub fn remove_remote(path: &Path, name: &str) -> Result<(), AppError> {
+    let repo = Repository::open(path)?;
+    repo.remote_delete(name)?;
+    Ok(())
+}
+
+pub fn rename_remote(path: &Path, old_name: &str, new_name: &str) -> Result<(), AppError> {
+    let repo = Repository::open(path)?;
+    repo.remote_rename(old_name, new_name)?;
+    Ok(())
+}
+
+// ── Git profile ─────────────────────────────────────────
+
+pub fn get_git_profile(path: &Path) -> Result<GitProfile, AppError> {
+    let repo = Repository::open(path)?;
+    let config = repo.config()?;
+
+    let name = config.get_string("user.name").unwrap_or_default();
+    let email = config.get_string("user.email").unwrap_or_default();
+
+    Ok(GitProfile { name, email })
+}
+
+pub fn set_git_profile(path: &Path, name: &str, email: &str) -> Result<(), AppError> {
+    let repo = Repository::open(path)?;
+    let mut config = repo.config()?;
+
+    config.set_str("user.name", name)?;
+    config.set_str("user.email", email)?;
+
+    Ok(())
+}
+
+// ── Squash commits ──────────────────────────────────────
+
+pub fn squash_commits(path: &Path, count: usize, message: &str) -> Result<String, AppError> {
+    if count < 2 {
+        return Err(AppError::General("Need at least 2 commits to squash".to_string()));
+    }
+
+    let repo = Repository::open(path)?;
+
+    // Walk back from HEAD to find the base parent
+    let head_commit = repo.head()?.peel_to_commit()?;
+    let head_tree = head_commit.tree()?;
+
+    let mut current = head_commit.clone();
+    for _ in 1..count {
+        if current.parent_count() == 0 {
+            return Err(AppError::General("Not enough commits to squash".to_string()));
+        }
+        if current.parent_count() > 1 {
+            return Err(AppError::General("Cannot squash across merge commits".to_string()));
+        }
+        current = current.parent(0)?;
+    }
+    // `current` is now the oldest commit in the range — its parent is the base
+    let base_parents: Vec<git2::Commit> = (0..current.parent_count())
+        .filter_map(|i| current.parent(i).ok())
+        .collect();
+    let parent_refs: Vec<&git2::Commit> = base_parents.iter().collect();
+
+    let sig = repo.signature()?;
+    let new_oid = repo.commit(
+        None, // Don't update HEAD yet
+        &sig,
+        &sig,
+        message,
+        &head_tree,
+        &parent_refs,
+    )?;
+
+    // Reset HEAD to the new commit
+    let new_commit = repo.find_object(new_oid, None)?;
+    repo.reset(&new_commit, git2::ResetType::Hard, None)?;
+
+    Ok(new_oid.to_string())
+}
+
+// ── PR URL ──────────────────────────────────────────────
+
+pub fn get_pr_url(path: &Path) -> Result<String, AppError> {
+    let repo = Repository::open(path)?;
+    let remote = repo.find_remote("origin").map_err(|_| {
+        AppError::General("No 'origin' remote found".to_string())
+    })?;
+    let url = remote.url().ok_or_else(|| {
+        AppError::General("Origin remote has no URL".to_string())
+    })?;
+
+    // Normalize SSH/HTTPS URL to base HTTPS URL
+    let base = normalize_remote_url(url)?;
+
+    // Get current branch name
+    let head = repo.head()?;
+    let branch = head.shorthand().unwrap_or("main");
+
+    // Detect service and build PR creation URL
+    let pr_url = if base.contains("github.com") {
+        format!("{}/compare/{}?expand=1", base, branch)
+    } else if base.contains("gitlab.com") || base.contains("gitlab") {
+        format!("{}/-/merge_requests/new?merge_request%5Bsource_branch%5D={}", base, branch)
+    } else if base.contains("bitbucket.org") {
+        format!("{}/pull-requests/new?source={}", base, branch)
+    } else {
+        return Err(AppError::General(format!("Unsupported git host in URL: {}", url)));
+    };
+
+    Ok(pr_url)
+}
+
+fn normalize_remote_url(url: &str) -> Result<String, AppError> {
+    // SSH: git@github.com:user/repo.git → https://github.com/user/repo
+    if let Some(rest) = url.strip_prefix("git@") {
+        let normalized = rest.replace(':', "/");
+        let trimmed = normalized.strip_suffix(".git").unwrap_or(&normalized);
+        return Ok(format!("https://{}", trimmed));
+    }
+
+    // HTTPS: https://github.com/user/repo.git → https://github.com/user/repo
+    let trimmed = url.strip_suffix(".git").unwrap_or(url);
+    Ok(trimmed.to_string())
 }
 
 // ── README ──────────────────────────────────────────────

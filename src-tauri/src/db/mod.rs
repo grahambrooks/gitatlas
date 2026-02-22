@@ -33,7 +33,8 @@ impl Database {
                 dirty_files INTEGER NOT NULL DEFAULT 0,
                 stash_count INTEGER NOT NULL DEFAULT 0,
                 health TEXT NOT NULL DEFAULT 'clean',
-                last_checked TEXT NOT NULL DEFAULT ''
+                last_checked TEXT NOT NULL DEFAULT '',
+                remote_url TEXT
             );
 
             CREATE TABLE IF NOT EXISTS scan_roots (

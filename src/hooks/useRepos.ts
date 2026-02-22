@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { RepoInfo } from "../types";
 
@@ -6,6 +6,15 @@ export function useRepos() {
   const [repos, setRepos] = useState<RepoInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Load cached repos on mount for instant startup
+  useEffect(() => {
+    invoke<RepoInfo[]>("load_cached_repos")
+      .then((cached) => {
+        if (cached.length > 0) setRepos(cached);
+      })
+      .catch(() => {});
+  }, []);
 
   const updateRepo = useCallback((updated: RepoInfo) => {
     setRepos((prev) =>

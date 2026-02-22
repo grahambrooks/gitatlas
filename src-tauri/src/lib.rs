@@ -1,3 +1,4 @@
+mod cache;
 mod commands;
 mod db;
 mod error;
@@ -21,6 +22,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::scan::scan_directories,
             commands::scan::get_scan_roots,
+            commands::scan::load_cached_repos,
             commands::status::get_all_repos,
             commands::status::get_repo_status,
             commands::operations::fetch_all,
@@ -46,6 +48,17 @@ pub fn run() {
             commands::detail::stash_pop,
             commands::detail::stash_drop,
             commands::detail::get_readme,
+            commands::detail::get_commit_files,
+            commands::detail::merge_branch,
+            commands::detail::get_file_history,
+            commands::detail::get_remotes,
+            commands::detail::add_remote,
+            commands::detail::remove_remote,
+            commands::detail::rename_remote,
+            commands::detail::get_git_profile,
+            commands::detail::set_git_profile,
+            commands::detail::squash_commits,
+            commands::detail::get_pr_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

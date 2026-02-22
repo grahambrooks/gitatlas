@@ -26,6 +26,7 @@ pub fn get_repo_info(path: &Path) -> RepoInfo {
                 stash_count: 0,
                 health: RepoHealth::Error,
                 last_checked: now,
+                remote_url: None,
             };
         }
     };
@@ -34,6 +35,7 @@ pub fn get_repo_info(path: &Path) -> RepoInfo {
     let (ahead, behind) = get_ahead_behind(&repo);
     let dirty_files = get_dirty_count(&repo);
     let stash_count = get_stash_count(&mut repo);
+    let remote_url = get_origin_url(&repo);
 
     let health = determine_health(ahead, behind, dirty_files);
 
@@ -48,6 +50,7 @@ pub fn get_repo_info(path: &Path) -> RepoInfo {
         stash_count,
         health,
         last_checked: now,
+        remote_url,
     }
 }
 
@@ -107,6 +110,12 @@ fn get_stash_count(repo: &mut Repository) -> u32 {
         true
     });
     count
+}
+
+fn get_origin_url(repo: &Repository) -> Option<String> {
+    repo.find_remote("origin")
+        .ok()
+        .and_then(|r| r.url().map(String::from))
 }
 
 fn determine_health(ahead: u32, behind: u32, dirty_files: u32) -> RepoHealth {

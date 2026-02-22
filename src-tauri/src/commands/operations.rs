@@ -2,6 +2,7 @@ use std::path::Path;
 
 use tauri::State;
 
+use crate::cache;
 use crate::db::models::RepoInfo;
 use crate::error::AppError;
 use crate::git;
@@ -20,6 +21,7 @@ pub async fn fetch_all(state: State<'_, AppState>) -> Result<Vec<RepoInfo>, AppE
         results.push(updated);
     }
 
+    cache::save(&results);
     Ok(results)
 }
 
@@ -36,6 +38,7 @@ pub async fn pull_all(state: State<'_, AppState>) -> Result<Vec<RepoInfo>, AppEr
         results.push(updated);
     }
 
+    cache::save(&results);
     Ok(results)
 }
 

@@ -51,33 +51,62 @@ export default function GraphSvg({ commits, width }: GraphSvgProps) {
             );
           }
 
-          // Curved merge/branch line
+          // Cross-lane edge: curve into the target lane within one row,
+          // then a vertical line in the target lane down to the parent.
+          // Pass-through lines handle intermediate rows, but we need the
+          // vertical segment from the curve endpoint to the parent.
+          const curveEndY = cy(row + 1);
           const midY = y1 + ROW_HEIGHT * 0.6;
-          return (
+          const elements = [
             <path
-              key={`${row}-${ei}`}
-              d={`M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`}
+              key={`${row}-${ei}-curve`}
+              d={`M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${curveEndY}`}
               fill="none"
               stroke={edge.color}
+              strokeWidth={2}
+              strokeOpacity={0.6}
+            />,
+          ];
+          // If the parent is more than one row away, draw a vertical line
+          // from the curve endpoint to the parent node
+          if (edge.toRow > row + 1) {
+            elements.push(
+              <line
+                key={`${row}-${ei}-vert`}
+                x1={x2}
+                y1={curveEndY}
+                x2={x2}
+                y2={y2}
+                stroke={edge.color}
+                strokeWidth={2}
+                strokeOpacity={0.6}
+              />,
+            );
+          }
+          return elements;
+        }),
+      )}
+
+      {/* Draw pass-through lines for active lanes that have no commit at this row */}
+      {nodes.map((node, row) =>
+        node.passThroughLanes.map((ptLane) => {
+          const x = cx(ptLane);
+          const y1 = cy(row) - ROW_HEIGHT / 2;
+          const y2 = cy(row) + ROW_HEIGHT / 2;
+          return (
+            <line
+              key={`pt-${row}-${ptLane}`}
+              x1={x}
+              y1={y1}
+              x2={x}
+              y2={y2}
+              stroke={colorForLane(ptLane)}
               strokeWidth={2}
               strokeOpacity={0.6}
             />
           );
         }),
       )}
-
-      {/* Draw continuation lines for active lanes between commits */}
-      {nodes.map((node, row) => {
-        if (row === nodes.length - 1) return null;
-        // Check if this commit's lane continues to next row via first-parent
-        // by seeing if there's a straight edge down
-        const hasStraight = node.edges.some(
-          (e) => e.fromLane === e.toLane && e.fromLane === node.lane,
-        );
-        if (!hasStraight) return null;
-        // The edge already handles the full line, so no extra drawing needed
-        return null;
-      })}
 
       {/* Draw commit nodes */}
       {nodes.map((node, row) => {

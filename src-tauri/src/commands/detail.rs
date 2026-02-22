@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::db::models::{BranchInfo, CommitInfo, FileChange, StashEntry};
+use crate::db::models::{BranchInfo, CommitFileChange, CommitInfo, FileChange, GitProfile, RemoteInfo, StashEntry};
 use crate::error::AppError;
 use crate::git;
 
@@ -108,6 +108,76 @@ pub async fn stash_pop(path: String, index: usize) -> Result<(), AppError> {
 #[tauri::command]
 pub async fn stash_drop(path: String, index: usize) -> Result<(), AppError> {
     git::detail::stash_drop(Path::new(&path), index)
+}
+
+// ── Commit files ─────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_commit_files(path: String, oid: String) -> Result<Vec<CommitFileChange>, AppError> {
+    git::detail::get_commit_files(Path::new(&path), &oid)
+}
+
+// ── Merge ─────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn merge_branch(path: String, branch_name: String) -> Result<String, AppError> {
+    git::detail::merge_branch(Path::new(&path), &branch_name)
+}
+
+// ── File history ─────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_file_history(path: String, file_path: String, count: Option<usize>) -> Result<Vec<CommitInfo>, AppError> {
+    let limit = count.unwrap_or(50);
+    git::detail::get_file_history(Path::new(&path), &file_path, limit)
+}
+
+// ── Remotes ─────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_remotes(path: String) -> Result<Vec<RemoteInfo>, AppError> {
+    git::detail::get_remotes(Path::new(&path))
+}
+
+#[tauri::command]
+pub async fn add_remote(path: String, name: String, url: String) -> Result<(), AppError> {
+    git::detail::add_remote(Path::new(&path), &name, &url)
+}
+
+#[tauri::command]
+pub async fn remove_remote(path: String, name: String) -> Result<(), AppError> {
+    git::detail::remove_remote(Path::new(&path), &name)
+}
+
+#[tauri::command]
+pub async fn rename_remote(path: String, old_name: String, new_name: String) -> Result<(), AppError> {
+    git::detail::rename_remote(Path::new(&path), &old_name, &new_name)
+}
+
+// ── Git profile ─────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_git_profile(path: String) -> Result<GitProfile, AppError> {
+    git::detail::get_git_profile(Path::new(&path))
+}
+
+#[tauri::command]
+pub async fn set_git_profile(path: String, name: String, email: String) -> Result<(), AppError> {
+    git::detail::set_git_profile(Path::new(&path), &name, &email)
+}
+
+// ── Squash ──────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn squash_commits(path: String, count: usize, message: String) -> Result<String, AppError> {
+    git::detail::squash_commits(Path::new(&path), count, &message)
+}
+
+// ── PR URL ──────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_pr_url(path: String) -> Result<String, AppError> {
+    git::detail::get_pr_url(Path::new(&path))
 }
 
 // ── README ─────────────────────────────────────────────

@@ -8,6 +8,7 @@ interface FileChangesProps {
   onUnstageFiles: (files: string[]) => void;
   onStageAll: () => void;
   onUnstageAll: () => void;
+  onFileHistory?: (path: string) => void;
 }
 
 const STATUS_LABELS: Record<FileStatus, { letter: string; color: string }> = {
@@ -27,6 +28,7 @@ export default function FileChanges({
   onUnstageFiles,
   onStageAll,
   onUnstageAll,
+  onFileHistory,
 }: FileChangesProps) {
   const staged = changes.filter((c) => c.staged);
   const unstaged = changes.filter((c) => !c.staged);
@@ -48,6 +50,7 @@ export default function FileChanges({
             onAction={() => onUnstageFiles([file.path])}
             actionLabel="−"
             actionTitle="Unstage"
+            onFileHistory={onFileHistory}
           />
         ))}
       </Section>
@@ -67,6 +70,7 @@ export default function FileChanges({
             onAction={() => onStageFiles([file.path])}
             actionLabel="+"
             actionTitle="Stage"
+            onFileHistory={onFileHistory}
           />
         ))}
       </Section>
@@ -119,6 +123,7 @@ function FileRow({
   onAction,
   actionLabel,
   actionTitle,
+  onFileHistory,
 }: {
   file: FileChange;
   isSelected: boolean;
@@ -126,6 +131,7 @@ function FileRow({
   onAction: () => void;
   actionLabel: string;
   actionTitle: string;
+  onFileHistory?: (path: string) => void;
 }) {
   const { letter, color } = STATUS_LABELS[file.status];
 
@@ -143,6 +149,18 @@ function FileRow({
       >
         {file.path}
       </button>
+      {onFileHistory && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onFileHistory(file.path);
+          }}
+          title="File history"
+          className="hidden group-hover:block rounded bg-slate-700 px-1.5 py-0.5 text-xs text-slate-300 hover:bg-slate-600"
+        >
+          history
+        </button>
+      )}
       <button
         onClick={(e) => {
           e.stopPropagation();

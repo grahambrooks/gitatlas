@@ -5,6 +5,7 @@ import type { RepoHealth, RepoInfo } from "../types";
 import FilterBar from "./FilterBar";
 import RepoList from "./RepoList";
 import BulkActions from "./BulkActions";
+import GitHubLink from "./GitHubLink";
 import RepoDetail from "./detail/RepoDetail";
 
 export default function Dashboard() {
@@ -73,11 +74,14 @@ export default function Dashboard() {
   return (
     <div className="px-6 py-8">
       <header className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white">GitAtlas</h1>
-          <p className="text-sm text-slate-400">
-            Multi-repo observability dashboard
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-white">GitAtlas</h1>
+            <p className="text-sm text-slate-400">
+              Multi-repo observability dashboard
+            </p>
+          </div>
+          <GitHubLink url="https://github.com/grahambrooks/gitatlas" className="h-5 w-5" />
         </div>
         <div className="flex items-center gap-3">
           <BulkActions

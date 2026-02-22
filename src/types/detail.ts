@@ -41,3 +41,18 @@ export interface StashEntry {
   index: number;
   message: string;
 }
+
+export interface CommitFileChange {
+  path: string;
+  status: string;
+}
+
+export interface RemoteInfo {
+  name: string;
+  url: string;
+}
+
+export interface GitProfile {
+  name: string;
+  email: string;
+}

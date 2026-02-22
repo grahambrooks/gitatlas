@@ -5,6 +5,9 @@ import type {
   FileChange,
   BranchInfo,
   StashEntry,
+  CommitFileChange,
+  RemoteInfo,
+  GitProfile,
 } from "../types";
 
 export function useRepoDetail(repoPath: string) {
@@ -19,6 +22,13 @@ export function useRepoDetail(repoPath: string) {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // New state for features
+  const [commitFiles, setCommitFiles] = useState<CommitFileChange[]>([]);
+  const [fileHistory, setFileHistory] = useState<CommitInfo[]>([]);
+  const [fileHistoryPath, setFileHistoryPath] = useState<string | null>(null);
+  const [remotes, setRemotes] = useState<RemoteInfo[]>([]);
+  const [profile, setProfile] = useState<GitProfile | null>(null);
+
   const withError = useCallback(async (fn: () => Promise<void>) => {
     setError(null);
     try {
@@ -26,6 +36,11 @@ export function useRepoDetail(repoPath: string) {
     } catch (err) {
       setError(String(err));
     }
+  }, []);
+
+  const showSuccess = useCallback((msg: string) => {
+    setSuccessMessage(msg);
+    setTimeout(() => setSuccessMessage(null), 3000);
   }, []);
 
   // ── Commits ──
@@ -53,6 +68,21 @@ export function useRepoDetail(repoPath: string) {
           oid,
         });
         setDiff(result);
+      });
+    },
+    [repoPath, withError],
+  );
+
+  // ── Commit files (details panel) ──
+
+  const loadCommitFiles = useCallback(
+    async (oid: string) => {
+      await withError(async () => {
+        const result = await invoke<CommitFileChange[]>("get_commit_files", {
+          path: repoPath,
+          oid,
+        });
+        setCommitFiles(result);
       });
     },
     [repoPath, withError],
@@ -186,12 +216,29 @@ export function useRepoDetail(repoPath: string) {
     [repoPath, withError, loadBranches],
   );
 
-  // ── Remote operations ──
+  // ── Merge ──
 
-  const showSuccess = useCallback((msg: string) => {
-    setSuccessMessage(msg);
-    setTimeout(() => setSuccessMessage(null), 3000);
-  }, []);
+  const mergeBranch = useCallback(
+    async (branchName: string) => {
+      setLoading(true);
+      setLoadingAction("Merging…");
+      await withError(async () => {
+        const result = await invoke<string>("merge_branch", {
+          path: repoPath,
+          branchName,
+        });
+        await loadCommits();
+        await loadBranches();
+        await loadChanges();
+        showSuccess(result);
+      });
+      setLoadingAction(null);
+      setLoading(false);
+    },
+    [repoPath, withError, loadCommits, loadBranches, loadChanges, showSuccess],
+  );
+
+  // ── Remote operations ──
 
   const fetchRemote = useCallback(async () => {
     setLoading(true);
@@ -286,6 +333,124 @@ export function useRepoDetail(repoPath: string) {
     });
   }, [repoPath, withError]);
 
+  // ── File history ──
+
+  const loadFileHistory = useCallback(
+    async (filePath: string) => {
+      setFileHistoryPath(filePath);
+      await withError(async () => {
+        const result = await invoke<CommitInfo[]>("get_file_history", {
+          path: repoPath,
+          filePath,
+        });
+        setFileHistory(result);
+      });
+    },
+    [repoPath, withError],
+  );
+
+  const closeFileHistory = useCallback(() => {
+    setFileHistoryPath(null);
+    setFileHistory([]);
+  }, []);
+
+  // ── Remotes ──
+
+  const loadRemotes = useCallback(async () => {
+    await withError(async () => {
+      const result = await invoke<RemoteInfo[]>("get_remotes", {
+        path: repoPath,
+      });
+      setRemotes(result);
+    });
+  }, [repoPath, withError]);
+
+  const addRemote = useCallback(
+    async (name: string, url: string) => {
+      await withError(async () => {
+        await invoke("add_remote", { path: repoPath, name, url });
+        await loadRemotes();
+        showSuccess(`Remote '${name}' added`);
+      });
+    },
+    [repoPath, withError, loadRemotes, showSuccess],
+  );
+
+  const removeRemote = useCallback(
+    async (name: string) => {
+      await withError(async () => {
+        await invoke("remove_remote", { path: repoPath, name });
+        await loadRemotes();
+        showSuccess(`Remote '${name}' removed`);
+      });
+    },
+    [repoPath, withError, loadRemotes, showSuccess],
+  );
+
+  const renameRemote = useCallback(
+    async (oldName: string, newName: string) => {
+      await withError(async () => {
+        await invoke("rename_remote", { path: repoPath, oldName, newName });
+        await loadRemotes();
+        showSuccess(`Remote renamed to '${newName}'`);
+      });
+    },
+    [repoPath, withError, loadRemotes, showSuccess],
+  );
+
+  // ── Git profile ──
+
+  const loadProfile = useCallback(async () => {
+    await withError(async () => {
+      const result = await invoke<GitProfile>("get_git_profile", {
+        path: repoPath,
+      });
+      setProfile(result);
+    });
+  }, [repoPath, withError]);
+
+  const updateProfile = useCallback(
+    async (name: string, email: string) => {
+      await withError(async () => {
+        await invoke("set_git_profile", { path: repoPath, name, email });
+        setProfile({ name, email });
+        showSuccess("Profile updated");
+      });
+    },
+    [repoPath, withError, showSuccess],
+  );
+
+  // ── Squash ──
+
+  const squashCommits = useCallback(
+    async (count: number, message: string) => {
+      setLoading(true);
+      setLoadingAction("Squashing…");
+      await withError(async () => {
+        await invoke<string>("squash_commits", {
+          path: repoPath,
+          count,
+          message,
+        });
+        await loadCommits();
+        showSuccess(`Squashed ${count} commits`);
+      });
+      setLoadingAction(null);
+      setLoading(false);
+    },
+    [repoPath, withError, loadCommits, showSuccess],
+  );
+
+  // ── PR URL ──
+
+  const openPullRequest = useCallback(async () => {
+    await withError(async () => {
+      const url = await invoke<string>("get_pr_url", { path: repoPath });
+      const { open } = await import("@tauri-apps/plugin-shell");
+      await open(url);
+    });
+  }, [repoPath, withError]);
+
   return {
     commits,
     changes,
@@ -297,9 +462,15 @@ export function useRepoDetail(repoPath: string) {
     loadingAction,
     error,
     successMessage,
+    commitFiles,
+    fileHistory,
+    fileHistoryPath,
+    remotes,
+    profile,
     setDiff,
     loadCommits,
     loadCommitDiff,
+    loadCommitFiles,
     loadChanges,
     loadFileDiff,
     stageFiles,
@@ -311,6 +482,7 @@ export function useRepoDetail(repoPath: string) {
     checkoutBranch,
     createBranch,
     deleteBranch,
+    mergeBranch,
     fetchRemote,
     pullRebase,
     push,
@@ -319,5 +491,15 @@ export function useRepoDetail(repoPath: string) {
     popStash,
     dropStash,
     loadReadme,
+    loadFileHistory,
+    closeFileHistory,
+    loadRemotes,
+    addRemote,
+    removeRemote,
+    renameRemote,
+    loadProfile,
+    updateProfile,
+    squashCommits,
+    openPullRequest,
   };
 }

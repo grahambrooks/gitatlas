@@ -11,4 +11,5 @@ export interface RepoInfo {
   stash_count: number;
   health: RepoHealth;
   last_checked: string;
+  remote_url: string | null;
 }
