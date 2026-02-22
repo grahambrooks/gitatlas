@@ -3,11 +3,38 @@ use git2::{
     RemoteCallbacks, Repository,
 };
 use std::path::Path;
+use std::sync::Once;
 
 use crate::error::AppError;
 
+/// Ensure SSH_AUTH_SOCK is set. On macOS, GUI apps don't inherit shell
+/// environment variables, so the SSH agent socket must be discovered.
+fn ensure_ssh_auth_sock() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        if std::env::var("SSH_AUTH_SOCK").is_ok() {
+            return;
+        }
+        // macOS: the system SSH agent socket lives under /private/tmp/com.apple.launchd.*
+        if let Ok(entries) = std::fs::read_dir("/private/tmp") {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                if name.to_string_lossy().starts_with("com.apple.launchd.") {
+                    let sock = entry.path().join("Listeners");
+                    if sock.exists() {
+                        std::env::set_var("SSH_AUTH_SOCK", &sock);
+                        return;
+                    }
+                }
+            }
+        }
+    });
+}
+
 /// Build remote callbacks with SSH agent, SSH key, and HTTPS credential support.
 fn make_callbacks() -> RemoteCallbacks<'static> {
+    ensure_ssh_auth_sock();
+
     let mut callbacks = RemoteCallbacks::new();
 
     callbacks.credentials(|url, username_from_url, allowed_types| {
