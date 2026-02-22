@@ -43,7 +43,13 @@ export default function RepoCard({ repo, onFetch, onPullRebase, onPush, onOpen }
   };
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-slate-700 bg-slate-800/50 p-4 transition hover:border-slate-500">
+    <div
+      className={`flex flex-col gap-3 rounded-lg border p-4 transition hover:border-slate-500 ${
+        repo.behind > 0
+          ? "border-red-700/60 bg-red-950/20"
+          : "border-slate-700 bg-slate-800/50"
+      }`}
+    >
       <div
         className="flex flex-col gap-3 cursor-pointer"
         onClick={() => onOpen(repo)}
@@ -67,17 +73,17 @@ export default function RepoCard({ repo, onFetch, onPullRebase, onPush, onOpen }
           <span className="truncate rounded bg-slate-700/60 px-2 py-0.5 text-xs font-mono text-blue-300">
             {repo.branch}
           </span>
+          {repo.behind > 0 && (
+            <span className="rounded bg-red-900/60 px-2 py-0.5 text-xs font-medium text-red-300">
+              ↓{repo.behind} behind origin
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-3 text-xs text-slate-400">
           {repo.ahead > 0 && (
-            <span className="text-green-400" title="Commits ahead">
-              ↑{repo.ahead}
-            </span>
-          )}
-          {repo.behind > 0 && (
-            <span className="text-red-400" title="Commits behind">
-              ↓{repo.behind}
+            <span className="text-green-400" title="Commits ahead of origin">
+              ↑{repo.ahead} ahead
             </span>
           )}
           {repo.dirty_files > 0 && (
