@@ -22,6 +22,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::scan::scan_directories,
             commands::scan::get_scan_roots,
+            commands::scan::set_scan_roots,
             commands::scan::load_cached_repos,
             commands::status::get_all_repos,
             commands::status::get_repo_status,

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useRepos } from "../hooks/useRepos";
 import type { RepoHealth, RepoInfo } from "../types";
@@ -15,6 +15,7 @@ export default function Dashboard() {
     fetchRepo, pullRebaseRepo, pushRepo,
   } = useRepos();
   const [scanRoots, setScanRoots] = useState<string[]>([]);
+  const [editingRoot, setEditingRoot] = useState<string | null>(null);
   const [activeFilters, setActiveFilters] = useState<Set<RepoHealth>>(new Set());
   const [search, setSearch] = useState("");
   const [selectedRepo, setSelectedRepo] = useState<RepoInfo | null>(null);
@@ -28,6 +29,18 @@ export default function Dashboard() {
       scanRepos(scanRoots);
     }
   };
+
+  const saveScanRoot = useCallback(
+    async (value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      const roots = [trimmed];
+      setScanRoots(roots);
+      setEditingRoot(null);
+      await invoke("set_scan_roots", { roots }).catch(() => {});
+    },
+    [],
+  );
 
   const toggleFilter = (health: RepoHealth) => {
     setActiveFilters((prev) => {
@@ -99,6 +112,39 @@ export default function Dashboard() {
           </button>
         </div>
       </header>
+
+      <div className="mb-6 flex items-center gap-2 text-sm">
+        <span className="text-slate-500 shrink-0">Scan root:</span>
+        {editingRoot !== null ? (
+          <form
+            className="flex items-center gap-2 flex-1 min-w-0"
+            onSubmit={(e) => {
+              e.preventDefault();
+              saveScanRoot(editingRoot);
+            }}
+          >
+            <input
+              autoFocus
+              type="text"
+              value={editingRoot}
+              onChange={(e) => setEditingRoot(e.target.value)}
+              onBlur={() => saveScanRoot(editingRoot)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setEditingRoot(null);
+              }}
+              className="flex-1 min-w-0 rounded bg-slate-800 border border-slate-600 px-2 py-0.5 text-sm font-mono text-slate-200 focus:border-indigo-500 focus:outline-none"
+            />
+          </form>
+        ) : (
+          <button
+            onClick={() => setEditingRoot(scanRoots[0] ?? "")}
+            className="truncate font-mono text-slate-300 hover:text-white transition cursor-pointer"
+            title="Click to change scan root"
+          >
+            {scanRoots[0] ?? "Not set"}
+          </button>
+        )}
+      </div>
 
       {error && (
         <div className="mb-4 rounded-md bg-red-900/30 border border-red-800 px-4 py-3 text-sm text-red-300">
