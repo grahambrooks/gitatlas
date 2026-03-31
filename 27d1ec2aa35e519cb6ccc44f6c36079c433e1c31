@@ -1,0 +1,23 @@
+Makefile
+  132a63ba76f98d95 1-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.23",
+  "base_commit_sha": "27d1ec2aa35e519cb6ccc44f6c36079c433e1c31",
+  "prompts": {
+    "132a63ba76f98d95": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d6197f2-a68b-46e6-ae0d-d66c8f938239",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>",
+      "messages": [],
+      "total_additions": 73,
+      "total_deletions": 0,
+      "accepted_lines": 73,
+      "overriden_lines": 0
+    }
+  }
+}
