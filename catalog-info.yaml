@@ -1,0 +1,25 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: gitatlas
+  title: GitAtlas
+  description: Multi-repo Git observability desktop app built with Tauri and React.
+  annotations:
+    github.com/project-slug: grahambrooks/gitatlas
+  tags:
+    - tauri
+    - react
+    - typescript
+    - rust
+    - git
+  links:
+    - url: https://github.com/grahambrooks/gitatlas
+      title: GitHub Repository
+      icon: github
+    - url: https://github.com/grahambrooks/gitatlas/blob/main/README.md
+      title: Project README
+spec:
+  type: application
+  lifecycle: experimental
+  owner: user:default/graham
+
