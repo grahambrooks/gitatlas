@@ -21,5 +21,4 @@ metadata:
 spec:
   type: application
   lifecycle: experimental
-  owner: grahambrooks
-
+  owner: user:grahambrooks
