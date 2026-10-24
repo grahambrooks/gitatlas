@@ -2,10 +2,13 @@ use git2::{
     AnnotatedCommit, AutotagOption, Cred, CredentialType, FetchOptions, PushOptions,
     RemoteCallbacks, Repository,
 };
+use std::cell::Cell;
 use std::path::Path;
 use std::sync::Once;
 
 use crate::error::AppError;
+
+const MAX_CRED_ATTEMPTS: u32 = 5;
 
 /// Ensure SSH_AUTH_SOCK is set. On macOS, GUI apps don't inherit shell
 /// environment variables, so the SSH agent socket must be discovered.
@@ -36,8 +39,16 @@ fn make_callbacks() -> RemoteCallbacks<'static> {
     ensure_ssh_auth_sock();
 
     let mut callbacks = RemoteCallbacks::new();
+    let attempts = Cell::new(0u32);
 
-    callbacks.credentials(|url, username_from_url, allowed_types| {
+    callbacks.credentials(move |url, username_from_url, allowed_types| {
+        let n = attempts.get() + 1;
+        attempts.set(n);
+        if n > MAX_CRED_ATTEMPTS {
+            return Err(git2::Error::from_str(
+                "authentication failed after multiple attempts",
+            ));
+        }
         // Try SSH agent first
         if allowed_types.contains(CredentialType::SSH_KEY) {
             let user = username_from_url.unwrap_or("git");
