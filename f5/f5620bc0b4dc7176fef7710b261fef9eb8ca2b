@@ -1,0 +1,35 @@
+src-tauri/src/git/detail.rs
+  s_b1e6a3d2a980d7::t_74e1af17f28b1b 67,107,376,417,643,748
+src-tauri/src/git/operations.rs
+  s_b1e6a3d2a980d7::t_74e1af17f28b1b 134,160,202
+  s_b1e6a3d2a980d7::t_0c2f0a821b2e03 140
+src-tauri/Cargo.toml
+  s_b1e6a3d2a980d7::t_7138b484b72397 20
+src-tauri/src/git/status.rs
+  s_b1e6a3d2a980d7::t_0c2f0a821b2e03 76-77
+  s_b1e6a3d2a980d7::t_74e1af17f28b1b 60,118
+src-tauri/Cargo.lock
+  s_b1e6a3d2a980d7::t_1e8b5802c3b308 1176-1178,1917,1919,1953-1966,2376-2393
+src-tauri/gen/schemas/acl-manifests.json
+  s_b1e6a3d2a980d7::t_4b3f8131205893 1
+src-tauri/gen/schemas/desktop-schema.json
+  s_b1e6a3d2a980d7::t_8fd531bec4f216 396,399,425-430,479-484,521-526,575-580,1104,1107,1139-1144,1211-1216,1476,1479-1485,1679-1684,1787-1792,1955-1960,2153-2158,2261-2266
+src-tauri/gen/schemas/macOS-schema.json
+  s_b1e6a3d2a980d7::t_4d6aab74ffb5b2 396,399,425-430,479-484,521-526,575-580,1104,1107,1139-1144,1211-1216,1476,1479-1485,1679-1684,1787-1792,1955-1960,2153-2158,2261-2266
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f5f5620bc0b4dc7176fef7710b261fef9eb8ca2b",
+  "prompts": {},
+  "sessions": {
+    "s_b1e6a3d2a980d7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9a91fa5c-c607-4ddf-bbbf-dd865daf1bb6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Graham Brooks <graham@grahambrooks.com>"
+    }
+  }
+}
