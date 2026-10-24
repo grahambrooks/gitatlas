@@ -131,13 +131,13 @@ pub fn fetch_repo(path: &Path) -> Result<(), AppError> {
     let repo = Repository::open(path)?;
 
     let remotes = repo.remotes()?;
-    for remote_name in remotes.iter().flatten() {
+    for remote_name in remotes.iter().filter_map(|n| n.ok().flatten()) {
         let mut remote = repo.find_remote(remote_name)?;
 
         let refspecs: Vec<String> = remote
             .fetch_refspecs()?
             .iter()
-            .flatten()
+            .filter_map(|s| s.ok().flatten())
             .map(String::from)
             .collect();
         let refspec_refs: Vec<&str> = refspecs.iter().map(|s| s.as_str()).collect();
@@ -157,7 +157,7 @@ pub fn pull_rebase_repo(path: &Path) -> Result<(), AppError> {
     let head = repo.head()?;
     let branch_name = head
         .shorthand()
-        .ok_or_else(|| AppError::General("HEAD is not on a branch".to_string()))?
+        .map_err(|_| AppError::General("HEAD is not on a branch".to_string()))?
         .to_string();
 
     let upstream_ref_name = format!("refs/remotes/origin/{}", branch_name);
@@ -199,7 +199,7 @@ pub fn push_repo(path: &Path) -> Result<(), AppError> {
     let head = repo.head()?;
     let branch_name = head
         .shorthand()
-        .ok_or_else(|| AppError::General("HEAD is not on a branch".to_string()))?
+        .map_err(|_| AppError::General("HEAD is not on a branch".to_string()))?
         .to_string();
 
     let mut remote = repo
