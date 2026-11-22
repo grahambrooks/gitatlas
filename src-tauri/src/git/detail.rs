@@ -24,12 +24,10 @@ pub fn get_commit_log(path: &Path, count: usize) -> Result<Vec<CommitInfo>, AppE
         }
     }
     // Push all local and remote branch tips
-    for branch_result in repo.branches(None).into_iter().flatten() {
-        if let Ok((branch, _)) = branch_result {
-            if let Ok(reference) = branch.into_reference().resolve() {
-                if let Some(oid) = reference.target() {
-                    let _ = revwalk.push(oid);
-                }
+    for (branch, _) in repo.branches(None).into_iter().flatten().flatten() {
+        if let Ok(reference) = branch.into_reference().resolve() {
+            if let Some(oid) = reference.target() {
+                let _ = revwalk.push(oid);
             }
         }
     }
@@ -68,37 +66,35 @@ fn build_ref_map(repo: &Repository) -> HashMap<String, Vec<RefLabel>> {
 
     // Branches
     if let Ok(branches) = repo.branches(None) {
-        for branch_result in branches {
-            if let Ok((branch, branch_type)) = branch_result {
-                let name = match branch.name() {
-                    Ok(Some(n)) => n.to_string(),
-                    _ => continue,
-                };
-                let reference = match branch.into_reference().resolve() {
-                    Ok(r) => r,
-                    Err(_) => continue,
-                };
-                let oid = match reference.target() {
-                    Some(o) => o.to_string(),
-                    None => continue,
-                };
+        for (branch, branch_type) in branches.flatten() {
+            let name = match branch.name() {
+                Ok(Some(n)) => n.to_string(),
+                _ => continue,
+            };
+            let reference = match branch.into_reference().resolve() {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let oid = match reference.target() {
+                Some(o) => o.to_string(),
+                None => continue,
+            };
 
-                let is_head = head_oid.as_deref() == Some(&oid)
-                    && head_name.as_deref() == Some(&name);
+            let is_head = head_oid.as_deref() == Some(&oid)
+                && head_name.as_deref() == Some(&name);
 
-                let kind = if is_head {
-                    RefKind::Head
-                } else if branch_type == git2::BranchType::Remote {
-                    RefKind::Remote
-                } else {
-                    RefKind::Local
-                };
+            let kind = if is_head {
+                RefKind::Head
+            } else if branch_type == git2::BranchType::Remote {
+                RefKind::Remote
+            } else {
+                RefKind::Local
+            };
 
-                map.entry(oid).or_default().push(RefLabel {
-                    name,
-                    kind,
-                });
-            }
+            map.entry(oid).or_default().push(RefLabel {
+                name,
+                kind,
+            });
         }
     }
 
@@ -109,8 +105,7 @@ fn build_ref_map(repo: &Repository) -> HashMap<String, Vec<RefLabel>> {
                 // Peel to the commit in case it's an annotated tag
                 let oid = reference
                     .peel(git2::ObjectType::Commit)
-                    .ok()
-                    .and_then(|obj| Some(obj.id().to_string()));
+                    .ok().map(|obj| obj.id().to_string());
                 if let Some(oid) = oid {
                     map.entry(oid).or_default().push(RefLabel {
                         name: tag_name.to_string(),
